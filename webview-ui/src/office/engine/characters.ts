@@ -79,6 +79,7 @@ export function createCharacter(
     bubbleType: null,
     bubbleTimer: 0,
     seatTimer: 0,
+    restSeatId: null,
     isSubagent: false,
     parentAgentId: null,
     matrixEffect: null,
@@ -87,6 +88,53 @@ export function createCharacter(
     contextTokens: 0,
     maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
   };
+}
+
+/** Give the lounge seat back so another idle agent can use it. */
+function releaseRestSeat(ch: Character, seats: Map<string, Seat>): void {
+  if (!ch.restSeatId) return;
+  const seat = seats.get(ch.restSeatId);
+  if (seat) seat.assigned = false;
+  ch.restSeatId = null;
+}
+
+/** Claim a random free, reachable lounge seat and start walking to it.
+ *  Seat tiles are blocked for pathfinding, so the target is unblocked only for
+ *  the duration of the search. Returns false when no lounge seat is available. */
+function claimLoungeSeat(
+  ch: Character,
+  seats: Map<string, Seat>,
+  tileMap: TileTypeVal[][],
+  blockedTiles: Set<string>,
+): boolean {
+  const candidates: Seat[] = [];
+  for (const seat of seats.values()) {
+    if (seat.isLounge && !seat.assigned) candidates.push(seat);
+  }
+  while (candidates.length > 0) {
+    const seat = candidates.splice(Math.floor(Math.random() * candidates.length), 1)[0];
+    const key = `${seat.seatCol},${seat.seatRow}`;
+    const wasBlocked = blockedTiles.delete(key);
+    const path = findPath(
+      ch.tileCol,
+      ch.tileRow,
+      seat.seatCol,
+      seat.seatRow,
+      tileMap,
+      blockedTiles,
+    );
+    if (wasBlocked) blockedTiles.add(key);
+    if (path.length === 0) continue;
+    seat.assigned = true;
+    ch.restSeatId = seat.uid;
+    ch.path = path;
+    ch.moveProgress = 0;
+    ch.state = CharacterState.WALK;
+    ch.frame = 0;
+    ch.frameTimer = 0;
+    return true;
+  }
+  return false;
 }
 
 export function updateCharacter(
@@ -101,6 +149,35 @@ export function updateCharacter(
 
   switch (ch.state) {
     case CharacterState.TYPE: {
+      if (ch.superviseTargetId != null) {
+        // Sub-agents running: stand up from the desk or lounge seat to watch them
+        releaseRestSeat(ch, seats);
+        ch.state = CharacterState.IDLE;
+        ch.frame = 0;
+        ch.frameTimer = 0;
+        break;
+      }
+      if (ch.restSeatId) {
+        if (ch.isActive) {
+          // Back to work: leave the lounge; the IDLE branch paths to the desk seat
+          releaseRestSeat(ch, seats);
+          ch.state = CharacterState.IDLE;
+          ch.frame = 0;
+          ch.frameTimer = 0;
+          break;
+        }
+        // Resting on a lounge seat: hold the sitting pose, no typing animation
+        ch.frame = 0;
+        ch.frameTimer = 0;
+        break;
+      }
+      // A seated sub-agent between turns keeps its seat and holds the pose: it
+      // lives only as long as its task, so it never wanders off
+      if (ch.isSubagent && ch.seatId && !ch.isActive) {
+        ch.frame = 0;
+        ch.frameTimer = 0;
+        break;
+      }
       if (ch.frameTimer >= TYPE_FRAME_DURATION_SEC) {
         ch.frameTimer -= TYPE_FRAME_DURATION_SEC;
         ch.frame = (ch.frame + 1) % 2;
@@ -126,8 +203,10 @@ export function updateCharacter(
       // No idle animation — static pose
       ch.frame = 0;
       if (ch.seatTimer < 0) ch.seatTimer = 0; // clear turn-end sentinel
-      // If became active, pathfind to seat
-      if (ch.isActive) {
+      // Supervising sub-agents: OfficeState decides where to stand; no wander, no desk
+      if (ch.superviseTargetId != null) break;
+      // If became active (or a sub-agent with its own seat), pathfind to seat
+      if (ch.isActive || (ch.isSubagent && ch.seatId)) {
         if (!ch.seatId) {
           // No seat assigned — type in place
           ch.state = CharacterState.TYPE;
@@ -164,6 +243,10 @@ export function updateCharacter(
       // Countdown wander timer
       ch.wanderTimer -= dt;
       if (ch.wanderTimer <= 0) {
+        // Idle agents head for a free lounge seat (sofa, armchair) instead of roaming
+        if (!ch.isSubagent && !ch.restSeatId && claimLoungeSeat(ch, seats, tileMap, blockedTiles)) {
+          break;
+        }
         // Check if we've wandered enough — return to seat for a rest
         if (ch.wanderCount >= ch.wanderLimit && ch.seatId) {
           const seat = seats.get(ch.seatId);
@@ -211,6 +294,8 @@ export function updateCharacter(
     }
 
     case CharacterState.WALK: {
+      // Called back to work while heading for the lounge: drop the claim
+      if (ch.isActive && ch.restSeatId) releaseRestSeat(ch, seats);
       // Walk animation
       if (ch.frameTimer >= WALK_FRAME_DURATION_SEC) {
         ch.frameTimer -= WALK_FRAME_DURATION_SEC;
@@ -222,6 +307,15 @@ export function updateCharacter(
         const center = tileCenter(ch.tileCol, ch.tileRow);
         ch.x = center.x;
         ch.y = center.y;
+
+        if (ch.superviseTargetId != null) {
+          // Reached a spot beside a sub-agent: stand and watch
+          releaseRestSeat(ch, seats);
+          ch.state = CharacterState.IDLE;
+          ch.frame = 0;
+          ch.frameTimer = 0;
+          break;
+        }
 
         if (ch.isActive) {
           if (!ch.seatId) {
@@ -237,6 +331,19 @@ export function updateCharacter(
             }
           }
         } else {
+          // Arrived at the claimed lounge seat: sit and stay until work resumes
+          if (ch.restSeatId) {
+            const restSeat = seats.get(ch.restSeatId);
+            if (restSeat && ch.tileCol === restSeat.seatCol && ch.tileRow === restSeat.seatRow) {
+              ch.state = CharacterState.TYPE;
+              ch.dir = restSeat.facingDir;
+              ch.seatTimer = 0;
+              ch.frame = 0;
+              ch.frameTimer = 0;
+              break;
+            }
+            releaseRestSeat(ch, seats);
+          }
           // Check if arrived at assigned seat — sit down for a rest before wandering again
           if (ch.seatId) {
             const seat = seats.get(ch.seatId);
@@ -291,7 +398,7 @@ export function updateCharacter(
       }
 
       // If became active while wandering, repath to seat
-      if (ch.isActive && ch.seatId) {
+      if (ch.isActive && ch.seatId && ch.superviseTargetId == null) {
         const seat = seats.get(ch.seatId);
         if (seat) {
           const lastStep = ch.path[ch.path.length - 1];

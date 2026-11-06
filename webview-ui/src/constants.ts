@@ -17,6 +17,9 @@ export const WANDER_MOVES_BEFORE_REST_MIN = 3;
 export const WANDER_MOVES_BEFORE_REST_MAX = 6;
 export const SEAT_REST_MIN_SEC = 120.0;
 export const SEAT_REST_MAX_SEC = 240.0;
+/** How long a supervising agent stands by one sub-agent before moving on */
+export const SUPERVISE_DWELL_MIN_SEC = 4.0;
+export const SUPERVISE_DWELL_MAX_SEC = 9.0;
 
 // ── Matrix Effect ────────────────────────────────────────────
 export const MATRIX_EFFECT_DURATION_SEC = 0.3;
@@ -43,6 +46,21 @@ export const SELECTED_OUTLINE_ALPHA = 1.0;
 export const HOVERED_OUTLINE_ALPHA = 0.5;
 /** Headless agents (adopted, no terminal to focus) render slightly translucent. */
 export const HEADLESS_CHARACTER_ALPHA = 0.5;
+/** Team marker: a small dot on a sub-agent and on the parent that launched it.
+ *  Each parent with live sub-agents gets one colour, so teams read at a glance. */
+export const SUBAGENT_MARKER_COLORS = [
+  '#ff3b6b',
+  '#2de2e6',
+  '#ffd23f',
+  '#8affc1',
+  '#b388ff',
+  '#ff9f1c',
+];
+export const SUBAGENT_MARKER_OUTLINE_COLOR = '#0a0a14';
+/** Dot side length in sprite pixels (the outline adds one more on each side) */
+export const SUBAGENT_MARKER_SIZE_PX = 3;
+/** Vertical position of the dot as a fraction of the sprite height (chest level) */
+export const SUBAGENT_MARKER_Y_FRACTION = 0.62;
 export const GHOST_PREVIEW_SPRITE_ALPHA = 0.5;
 export const GHOST_PREVIEW_TINT_ALPHA = 0.25;
 export const SELECTION_DASH_PATTERN: [number, number] = [4, 3];

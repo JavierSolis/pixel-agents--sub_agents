@@ -54,6 +54,8 @@ export interface Seat {
   /** Direction character faces when sitting (toward adjacent desk) */
   facingDir: Direction;
   assigned: boolean;
+  /** Seat that does not face a PC (sofas, armchairs): where idle agents rest. */
+  isLounge?: boolean;
 }
 
 export interface FurnitureInstance {
@@ -213,6 +215,18 @@ export interface Character {
   bubbleTimer: number;
   /** Timer to stay seated while inactive after seat reassignment (counts down to 0) */
   seatTimer: number;
+  /** Lounge seat the character is walking to or resting on while idle (not its
+   *  assigned desk seat). Held as `assigned` so nobody else claims it. */
+  restSeatId?: string | null;
+  /** Sub-agents only: index into SUBAGENT_MARKER_COLORS shared by every sub-agent
+   *  of the same parent. The renderer draws the same dot on the parent. */
+  markerColorIndex?: number;
+  /** Sub-agent character this agent is currently watching over, or null/undefined
+   *  when it has no live sub-agents. While set, the agent leaves its desk and the
+   *  character FSM neither wanders nor returns to the seat. */
+  superviseTargetId?: number | null;
+  /** Seconds left before the supervisor moves to another spot or sub-agent */
+  superviseTimer?: number;
   /** Whether this character represents a sub-agent (spawned by Task tool) */
   isSubagent: boolean;
   /** Parent agent ID if this is a sub-agent, null otherwise */

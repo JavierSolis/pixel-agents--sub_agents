@@ -39,6 +39,10 @@ import {
   SELECTED_OUTLINE_ALPHA,
   SELECTION_DASH_PATTERN,
   SELECTION_HIGHLIGHT_COLOR,
+  SUBAGENT_MARKER_COLORS,
+  SUBAGENT_MARKER_OUTLINE_COLOR,
+  SUBAGENT_MARKER_SIZE_PX,
+  SUBAGENT_MARKER_Y_FRACTION,
   VOID_TILE_DASH_PATTERN,
   VOID_TILE_OUTLINE_COLOR,
 } from '../../constants.js';
@@ -380,6 +384,15 @@ export function renderScene(
     }
   }
 
+  // Team markers: a sub-agent and its parent share one colour
+  const markerColors = new Map<number, string>();
+  for (const ch of characters) {
+    if (!ch.isSubagent || ch.parentAgentId === null || ch.markerColorIndex === undefined) continue;
+    const color = SUBAGENT_MARKER_COLORS[ch.markerColorIndex % SUBAGENT_MARKER_COLORS.length];
+    markerColors.set(ch.id, color);
+    markerColors.set(ch.parentAgentId, color);
+  }
+
   // Characters
   for (const ch of characters) {
     const sprites = getCharacterSprites(ch.palette, ch.hueShift);
@@ -438,17 +451,27 @@ export function renderScene(
       });
     }
 
+    const markerColor = markerColors.get(ch.id);
     drawables.push({
       zY: charZY,
       draw: (c) => {
         if (alpha === 1) {
           c.drawImage(cached, drawX, drawY);
-          return;
+        } else {
+          c.save();
+          c.globalAlpha = alpha;
+          c.drawImage(cached, drawX, drawY);
+          c.restore();
         }
-        c.save();
-        c.globalAlpha = alpha;
-        c.drawImage(cached, drawX, drawY);
-        c.restore();
+        if (markerColor) {
+          const dot = SUBAGENT_MARKER_SIZE_PX * zoom;
+          const dotX = Math.round(drawX + (cached.width - dot) / 2);
+          const dotY = Math.round(drawY + cached.height * SUBAGENT_MARKER_Y_FRACTION);
+          c.fillStyle = SUBAGENT_MARKER_OUTLINE_COLOR;
+          c.fillRect(dotX - zoom, dotY - zoom, dot + 2 * zoom, dot + 2 * zoom);
+          c.fillStyle = markerColor;
+          c.fillRect(dotX, dotY, dot, dot);
+        }
       },
     });
   }

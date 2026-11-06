@@ -14,6 +14,8 @@ import {
   MAX_PET_ID_LENGTH,
   PET_HIT_HALF_WIDTH,
   PET_HIT_HEIGHT,
+  SUPERVISE_DWELL_MAX_SEC,
+  SUPERVISE_DWELL_MIN_SEC,
   WAITING_BUBBLE_DURATION_SEC,
 } from '../../constants.js';
 import { getAnimationFrames, getCatalogEntry, getOnStateType } from '../layout/furnitureCatalog.js';
@@ -125,6 +127,7 @@ export class OfficeState {
     this.layout = layout || createDefaultLayout();
     this.tileMap = layoutToTileMap(this.layout);
     this.seats = layoutToSeats(this.layout.furniture);
+    this.markLoungeSeats();
     this.blockedTiles = getBlockedTiles(this.layout.furniture);
     this.furniture = layoutToFurnitureInstances(this.layout.furniture);
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
@@ -138,6 +141,9 @@ export class OfficeState {
     this.layout = layout;
     this.tileMap = layoutToTileMap(layout);
     this.seats = layoutToSeats(layout.furniture);
+    this.markLoungeSeats();
+    // Seats were rebuilt: lounge claims point at stale seats, so drop them
+    for (const ch of this.characters.values()) ch.restSeatId = null;
     this.blockedTiles = getBlockedTiles(layout.furniture);
     this.rebuildFurnitureInstances();
     this.walkableTiles = getWalkableTiles(this.tileMap, this.blockedTiles);
@@ -274,13 +280,146 @@ export class OfficeState {
     return `${seat.seatCol},${seat.seatRow}`;
   }
 
-  /** Temporarily unblock a character's own seat, run fn, then re-block */
+  /** Blocked-tile key of the lounge seat a character is resting on, or null */
+  private restSeatKey(ch: Character): string | null {
+    if (!ch.restSeatId) return null;
+    const seat = this.seats.get(ch.restSeatId);
+    if (!seat) return null;
+    return `${seat.seatCol},${seat.seatRow}`;
+  }
+
+  /** Temporarily unblock a character's own seat and lounge seat, run fn, then re-block */
   private withOwnSeatUnblocked<T>(ch: Character, fn: () => T): T {
-    const key = this.ownSeatKey(ch);
-    if (key) this.blockedTiles.delete(key);
+    const keys = [this.ownSeatKey(ch), this.restSeatKey(ch)].filter((k): k is string => k !== null);
+    for (const key of keys) this.blockedTiles.delete(key);
     const result = fn();
-    if (key) this.blockedTiles.add(key);
+    for (const key of keys) this.blockedTiles.add(key);
     return result;
+  }
+
+  /** Live (not despawning) sub-agent characters grouped by parent agent id. */
+  private liveSubagentsByParent(): Map<number, Character[]> {
+    const out = new Map<number, Character[]>();
+    for (const [subId, meta] of this.subagentMeta) {
+      const sub = this.characters.get(subId);
+      if (!sub || sub.matrixEffect === 'despawn') continue;
+      const list = out.get(meta.parentAgentId);
+      if (list) list.push(sub);
+      else out.set(meta.parentAgentId, [sub]);
+    }
+    return out;
+  }
+
+  /**
+   * Supervisor behaviour: an agent with live sub-agents leaves its desk and
+   * stands beside one of them, facing it. With several it moves on to the next
+   * after a short dwell; with one it shifts to another side of it. It cannot go
+   * rest while any sub-agent is alive. When the last one finishes, the target is
+   * cleared and the normal FSM sends the agent back to its desk (or the lounge).
+   * Only decides targets and paths; movement itself is the character FSM's job.
+   */
+  private superviseSubagents(ch: Character, subs: Character[], dt: number): void {
+    if (subs.length === 0) {
+      if (ch.superviseTargetId != null) {
+        ch.superviseTargetId = null;
+        ch.superviseTimer = 0;
+      }
+      return;
+    }
+
+    let target = subs.find((s) => s.id === ch.superviseTargetId);
+    if (!target) {
+      target = subs[0];
+      ch.superviseTargetId = target.id;
+      ch.superviseTimer = this.randomSuperviseDwell();
+    }
+    // Seated agents stand up first and walkers finish their step: act once standing
+    if (ch.state !== CharacterState.IDLE) return;
+
+    const dCol = target.tileCol - ch.tileCol;
+    const dRow = target.tileRow - ch.tileRow;
+    const adjacent = Math.abs(dCol) + Math.abs(dRow) === 1;
+    let pacing = false;
+
+    if (adjacent) {
+      ch.dir =
+        dCol > 0
+          ? Direction.RIGHT
+          : dCol < 0
+            ? Direction.LEFT
+            : dRow > 0
+              ? Direction.DOWN
+              : Direction.UP;
+      ch.superviseTimer = (ch.superviseTimer ?? 0) - dt;
+      if (ch.superviseTimer > 0) return;
+      ch.superviseTimer = this.randomSuperviseDwell();
+      if (subs.length > 1) {
+        const next = subs[(subs.indexOf(target) + 1) % subs.length];
+        ch.superviseTargetId = next.id;
+        target = next;
+      } else {
+        pacing = true;
+      }
+    }
+
+    this.walkBesideSubagent(ch, target, pacing);
+  }
+
+  private randomSuperviseDwell(): number {
+    return (
+      SUPERVISE_DWELL_MIN_SEC + Math.random() * (SUPERVISE_DWELL_MAX_SEC - SUPERVISE_DWELL_MIN_SEC)
+    );
+  }
+
+  /** Path to a free tile next to the target: the nearest one, or a random other
+   *  one when `pacing` (so a lone supervisor walks around its sub-agent). */
+  private walkBesideSubagent(ch: Character, target: Character, pacing: boolean): void {
+    const occupied = new Set<string>();
+    for (const other of this.characters.values()) {
+      if (other.id !== ch.id) occupied.add(`${other.tileCol},${other.tileRow}`);
+    }
+    const spots = [
+      { col: target.tileCol, row: target.tileRow - 1 },
+      { col: target.tileCol, row: target.tileRow + 1 },
+      { col: target.tileCol - 1, row: target.tileRow },
+      { col: target.tileCol + 1, row: target.tileRow },
+    ].filter(
+      (s) =>
+        isWalkable(s.col, s.row, this.tileMap, this.blockedTiles) &&
+        !occupied.has(`${s.col},${s.row}`) &&
+        !(pacing && s.col === ch.tileCol && s.row === ch.tileRow),
+    );
+    const distance = (s: { col: number; row: number }) =>
+      Math.abs(s.col - ch.tileCol) + Math.abs(s.row - ch.tileRow);
+    if (pacing) spots.sort(() => Math.random() - 0.5);
+    else spots.sort((a, b) => distance(a) - distance(b));
+
+    for (const spot of spots) {
+      const path = findPath(
+        ch.tileCol,
+        ch.tileRow,
+        spot.col,
+        spot.row,
+        this.tileMap,
+        this.blockedTiles,
+      );
+      if (path.length === 0) continue;
+      ch.path = path;
+      ch.moveProgress = 0;
+      ch.state = CharacterState.WALK;
+      ch.frame = 0;
+      ch.frameTimer = 0;
+      return;
+    }
+  }
+
+  /** Flag seats that do not face a PC (sofas, armchairs) as lounge seats, where
+   *  idle agents rest. Must run whenever `seats` is rebuilt from a layout. */
+  private markLoungeSeats(): void {
+    const electronicsTiles = this.buildElectronicsTileSet();
+    for (const seat of this.seats.values()) {
+      seat.isLounge = !this.isSeatFacingElectronics(seat, electronicsTiles);
+    }
   }
 
   /** Collect every tile occupied by electronics furniture (PCs, monitors, etc.). */
@@ -595,6 +734,11 @@ export class OfficeState {
       const seat = this.seats.get(ch.seatId);
       if (seat) seat.assigned = false;
     }
+    if (ch.restSeatId) {
+      const restSeat = this.seats.get(ch.restSeatId);
+      if (restSeat) restSeat.assigned = false;
+      ch.restSeatId = null;
+    }
     if (this.selectedAgentId === id) this.selectedAgentId = null;
     if (this.cameraFollowId === id) this.cameraFollowId = null;
     // Start despawn animation instead of immediate delete
@@ -723,14 +867,67 @@ export class OfficeState {
   }
 
   /** Create a sub-agent character with the parent's palette. Returns the sub-agent ID. */
+  /** Look for a new sub-agent: a character different from its parent (so it does
+   *  not read as a clone), picked from the least-used of the others. Falls back to
+   *  the parent's look when only one character is loaded. */
+  private pickSubagentLook(parentCh: Character | undefined): { palette: number; hueShift: number } {
+    const paletteCount = getLoadedCharacterCount();
+    const parentPalette = parentCh ? parentCh.palette : 0;
+    if (paletteCount <= 1) {
+      return { palette: parentPalette, hueShift: parentCh ? parentCh.hueShift : 0 };
+    }
+    const counts = new Array<number>(paletteCount).fill(0);
+    for (const c of this.characters.values()) {
+      if (c.palette < paletteCount) counts[c.palette]++;
+    }
+    let min = Infinity;
+    for (let i = 0; i < paletteCount; i++) {
+      if (i !== parentPalette) min = Math.min(min, counts[i]);
+    }
+    const candidates: number[] = [];
+    for (let i = 0; i < paletteCount; i++) {
+      if (i !== parentPalette && counts[i] === min) candidates.push(i);
+    }
+    return { palette: candidates[Math.floor(Math.random() * candidates.length)], hueShift: 0 };
+  }
+
+  /** Free seat that faces a PC (not a lounge seat), nearest to the given tile, or null. */
+  private findFreeWorkSeatNear(col: number, row: number): string | null {
+    let best: string | null = null;
+    let bestDistance = Infinity;
+    for (const [uid, seat] of this.seats) {
+      if (seat.assigned || seat.isLounge) continue;
+      const distance = Math.abs(seat.seatCol - col) + Math.abs(seat.seatRow - row);
+      if (distance < bestDistance) {
+        best = uid;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  /** Team colour for a parent's sub-agents: the one its live sub-agents already
+   *  wear, else the first colour no other parent's team is using. */
+  private pickMarkerColorIndex(parentAgentId: number): number {
+    const used = new Set<number>();
+    for (const sub of this.characters.values()) {
+      if (!sub.isSubagent || sub.markerColorIndex === undefined) continue;
+      if (sub.parentAgentId === parentAgentId) return sub.markerColorIndex;
+      used.add(sub.markerColorIndex);
+    }
+    let index = 0;
+    while (used.has(index)) index++;
+    return index;
+  }
+
   addSubagent(parentAgentId: number, parentToolId: string): number {
     const key = `${parentAgentId}:${parentToolId}`;
     if (this.subagentIdMap.has(key)) return this.subagentIdMap.get(key)!;
 
     const id = this.nextSubagentId--;
     const parentCh = this.characters.get(parentAgentId);
-    const palette = parentCh ? parentCh.palette : 0;
-    const hueShift = parentCh ? parentCh.hueShift : 0;
+    const { palette, hueShift } = this.pickSubagentLook(parentCh);
+    const markerColorIndex = this.pickMarkerColorIndex(parentAgentId);
 
     // Find the closest walkable tile to the parent, avoiding tiles occupied by other characters
     const parentCol = parentCh ? parentCh.tileCol : 0;
@@ -740,7 +937,16 @@ export class OfficeState {
       spawn = this.closestFreeWalkableTile(parentCol, parentRow) ?? this.walkableTiles[0];
     }
 
-    const ch = createCharacter(id, palette, null, null, hueShift);
+    // Own PC seat, the free one closest to the parent so the team sits together.
+    // With none free the sub-agent falls back to typing in place beside the parent.
+    const seatId = this.findFreeWorkSeatNear(parentCol, parentRow);
+    const seat = seatId ? (this.seats.get(seatId) ?? null) : null;
+    const ch = createCharacter(id, palette, seat ? seatId : null, seat, hueShift);
+    if (seat) {
+      seat.assigned = true;
+      // Start standing so the FSM walks it to the seat (TYPE would type in place)
+      ch.state = CharacterState.IDLE;
+    }
     ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
     ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2;
     ch.tileCol = spawn.col;
@@ -749,6 +955,7 @@ export class OfficeState {
     if (parentCh) ch.dir = parentCh.dir;
     ch.isSubagent = true;
     ch.parentAgentId = parentAgentId;
+    ch.markerColorIndex = markerColorIndex;
     startMatrixEffect(ch, 'spawn');
     this.characters.set(id, ch);
 
@@ -1138,12 +1345,15 @@ export class OfficeState {
     }
 
     const toDelete: number[] = [];
+    const subagentsByParent = this.liveSubagentsByParent();
     for (const ch of this.characters.values()) {
       const effect = advanceMatrixEffect(ch, dt);
       if (effect !== 'none') {
         if (effect === 'despawned') toDelete.push(ch.id);
         continue; // skip normal FSM while the effect is (or just was) active
       }
+
+      if (!ch.isSubagent) this.superviseSubagents(ch, subagentsByParent.get(ch.id) ?? [], dt);
 
       // Temporarily unblock own seat so character can pathfind to it
       this.withOwnSeatUnblocked(ch, () =>
