@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+- **Idle agents rest in the lounge** — An agent that goes idle now walks to a free lounge seat and sits there, without the typing animation, until it has work again, instead of roaming at random or resting at its desk. A lounge seat is any seat that does not face a PC (sofas, armchairs), so it follows the layout you draw. When none is free the agent wanders as before.
+- **Supervising parents** — An agent with live sub-agents stands up and walks beside one of them, facing it. With several it moves on to the next after a few seconds; with one it walks around it. It does not go idle until the last sub-agent ends, then returns to its desk (or the lounge).
+- **Sub-agents get their own look and seat** — A sub-agent is now a different character from its parent and claims the free PC seat nearest to the parent, so a team sits together. When no PC seat is free it types in place beside the parent, as before. It keeps its seat between turns instead of wandering off.
+- **Team markers** — A sub-agent and the parent that launched it share a coloured dot at chest level, one colour per team, so you can tell whose sub-agent is whose at a glance.
+
+### Known limitations
+
+- Sub-agents that were already running when the server started are not shown: adopted sessions skip their past transcript, so the spawn is never seen.
+- Sub-agents need a free PC seat to sit down; add desks, PCs and chairs in the layout editor to fit larger teams.
+
 ## v1.5.0
 
 ### Features
