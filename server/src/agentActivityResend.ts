@@ -1,5 +1,6 @@
 import type { AgentStateStore } from './agentStateStore.js';
 import { hasPromotedBackgroundAgent } from './teamUtils.js';
+import type { AgentState } from './types.js';
 
 /**
  * Replay an agent's active state to a connecting client.
@@ -8,12 +9,17 @@ import { hasPromotedBackgroundAgent } from './teamUtils.js';
  * 1. Team info first — webview needs team context before tool messages
  * 2. Regular tools
  * 3. Background tools with runInBackground + isTeammateSpawn flags, skipping promoted spawns
- * 4. Waiting status
+ * 4. Waiting status, or active when the CLI itself reports the session busy with
+ *    nothing else to show for it (e.g. mid-thought, before any tool)
  * 5. Context usage
+ *
+ * `liveStatusOf` returns the CLI's own state label for an agent's session
+ * (undefined when unknown). Only 'busy' is acted on.
  */
 export function resendAgentActivity(
   send: (message: Record<string, unknown>) => void,
   store: AgentStateStore,
+  liveStatusOf?: (agent: AgentState) => string | undefined,
 ): void {
   for (const [id, agent] of store) {
     // 1. Team metadata first — webview uses this to route tool messages correctly.
@@ -72,6 +78,12 @@ export function resendAgentActivity(
         type: 'agentStatus',
         id,
         status: 'waiting',
+      });
+    } else if (agent.activeToolStatuses.size === 0 && liveStatusOf?.(agent) === 'busy') {
+      send({
+        type: 'agentStatus',
+        id,
+        status: 'active',
       });
     }
 

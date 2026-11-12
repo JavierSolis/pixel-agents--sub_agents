@@ -27,7 +27,7 @@ import type * as vscode from 'vscode';
 
 const debug = process.env.PIXEL_AGENTS_DEBUG !== '0';
 
-import type { HookProvider } from '../../core/src/provider.js';
+import type { HookProvider, LiveSession } from '../../core/src/provider.js';
 import type { TeamProvider } from '../../core/src/teamProvider.js';
 import type { ITerminalAdapter } from '../../core/src/terminalAdapter.js';
 import { createAgentState } from './agentState.js';
@@ -589,6 +589,25 @@ export function setSubagentWatch(watch: SubagentWatch | null): void {
 /** Register the active HookProvider for non-team capabilities (session roots, etc.). */
 export function setHookProvider(provider: HookProvider): void {
   hookProvider = provider;
+}
+
+/**
+ * Sessions running right now, keyed by session id (the transcript's basename), or
+ * null when the provider exposes no registry. Null means "unknown" and keeps the
+ * activity-window rules; an empty map means "nothing is running".
+ */
+function liveSessionMap(): Map<string, LiveSession> | null {
+  const live = hookProvider?.listLiveSessions?.();
+  if (!live) return null;
+  return new Map(live.map((s) => [s.sessionId, s]));
+}
+
+/** True when this transcript belongs to a running session that nobody has closed. A
+ *  running session is shown even if it has been quiet longer than the activity
+ *  window: its idleness is exactly what the office is meant to display. */
+function isLiveAndWanted(live: Map<string, LiveSession> | null, file: string): boolean {
+  if (!live?.has(path.basename(file, '.jsonl'))) return false;
+  return !dismissalTracker?.wasEverDismissed(file);
 }
 
 /**
@@ -1165,6 +1184,13 @@ function adoptExternalSession(
     permissionTimers,
   );
   readNewLines(id, agents, waitingTimers, permissionTimers);
+
+  // The office creates an adopted agent at rest. If the CLI says the session is busy
+  // right now (e.g. mid-thought, before any tool has run), say so — otherwise it
+  // would look idle until its first tool starts.
+  if (liveSessionMap()?.get(agent.sessionId)?.status === 'busy' && !agent.isWaiting) {
+    agents.broadcast({ type: 'agentStatus', id, status: 'active' });
+  }
 }
 
 /**
@@ -1247,6 +1273,7 @@ export function scanExternalDir(
   }
 
   const now = Date.now();
+  const live = liveSessionMap();
 
   // If an internal agent in this projectDir is still waiting for its JSONL file
   // (file doesn't exist), skip all adoptions. The agent may have done /resume,
@@ -1344,10 +1371,13 @@ export function scanExternalDir(
       if (leadTracked) continue;
     }
 
-    // Only adopt recently-active files (modified within threshold).
+    // Only adopt recently-active files (modified within threshold), unless the
+    // session is running: a live but quiet session is still shown.
     try {
       const stat = fs.statSync(file);
-      if (now - stat.mtimeMs > EXTERNAL_ACTIVE_THRESHOLD_MS) continue;
+      if (now - stat.mtimeMs > EXTERNAL_ACTIVE_THRESHOLD_MS && !isLiveAndWanted(live, file)) {
+        continue;
+      }
     } catch {
       continue;
     }
@@ -1423,6 +1453,7 @@ function scanGlobalProjectDirs(
   }
 
   const now = Date.now();
+  const live = liveSessionMap();
   for (const dirPath of projectDirs) {
     // Skip directories already tracked by workspace scanning
     if (isTrackedProjectDir(dirPath)) continue;
@@ -1451,7 +1482,9 @@ function scanGlobalProjectDirs(
       try {
         const stat = fs.statSync(file);
         if (stat.size < GLOBAL_SCAN_ACTIVE_MIN_SIZE) continue;
-        if (now - stat.mtimeMs > GLOBAL_SCAN_ACTIVE_MAX_AGE_MS) continue;
+        if (now - stat.mtimeMs > GLOBAL_SCAN_ACTIVE_MAX_AGE_MS && !isLiveAndWanted(live, file)) {
+          continue;
+        }
       } catch {
         continue;
       }

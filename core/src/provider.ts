@@ -62,6 +62,19 @@ export type AgentEvent =
     }
   | { kind: 'sessionEnd'; reason?: string };
 
+// ── Live sessions (what the CLI itself says is running) ───────
+
+/** A session whose process is running right now, as reported by the CLI. */
+export interface LiveSession {
+  sessionId: string;
+  pid: number;
+  /** Working directory the session was started in. */
+  cwd?: string;
+  /** The CLI's own state label for the session (Claude: 'idle', 'busy', 'shell', ...).
+   *  Providers pass it through untouched; consumers match only the values they know. */
+  status?: string;
+}
+
 // ── Hook-based Provider (CLIs with hooks APIs) ────────────────
 
 export interface HookProvider {
@@ -115,6 +128,14 @@ export interface HookProvider {
    *  Return undefined for an unrecognized model; the runtime then keeps its
    *  previous estimate and widens it if a context ever exceeds it. */
   contextWindowForModel?(model: string | undefined): number | undefined;
+
+  /** Sessions whose process is alive right now, with the state the CLI reports for
+   *  each. A transcript alone cannot say whether anyone is still on the other end,
+   *  so this is the only way to restore idle sessions and to drop ones that died
+   *  while the server was off. Return null when the CLI exposes no such registry
+   *  (or it cannot be read): callers then keep their previous behaviour, which is
+   *  different from an empty list ("nothing is running"). */
+  listLiveSessions?(): LiveSession[] | null;
 
   // ── Optional file fallback (heuristic mode) ──
 

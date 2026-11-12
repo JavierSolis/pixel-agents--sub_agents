@@ -17,6 +17,11 @@ export class DismissalTracker {
    *  the dismissal timestamp. Entries auto-expire after DISMISSED_COOLDOWN_MS. */
   private dismissed = new Map<string, number>();
 
+  /** Files dismissed at least once in this process, even after the cooldown expired.
+   *  Lets discovery that ignores file activity (live-session adoption) honour a
+   *  close for good, instead of reviving the agent when the cooldown runs out. */
+  private everDismissed = new Set<string>();
+
   /** Files permanently dismissed by /clear reassignment. Never re-adopted in this session. */
   private permanent = new Set<string>();
 
@@ -32,12 +37,21 @@ export class DismissalTracker {
 
   /** Dismiss a file temporarily. Accepts an optional timestamp for testing. */
   dismiss(path: string, timestamp = Date.now()): void {
-    this.dismissed.set(toPathKey(path), timestamp);
+    const key = toPathKey(path);
+    this.dismissed.set(key, timestamp);
+    this.everDismissed.add(key);
   }
 
   /** Explicitly clear a temporary dismissal (e.g. on --resume). */
   clearDismissal(path: string): void {
-    this.dismissed.delete(toPathKey(path));
+    const key = toPathKey(path);
+    this.dismissed.delete(key);
+    this.everDismissed.delete(key);
+  }
+
+  /** True if the file was dismissed at any point in this process, cooldown or not. */
+  wasEverDismissed(path: string): boolean {
+    return this.everDismissed.has(toPathKey(path));
   }
 
   /** True if the file is temporarily dismissed AND still within the cooldown window.
@@ -100,6 +114,7 @@ export class DismissalTracker {
 
   resetAll(): void {
     this.dismissed.clear();
+    this.everDismissed.clear();
     this.permanent.clear();
     this.seeded.clear();
     this.pending.clear();

@@ -1,3 +1,5 @@
+import * as path from 'path';
+
 import type { StateAdapter } from '../../core/src/adapter.js';
 import type { HookProvider } from '../../core/src/provider.js';
 import { resendAgentActivity } from './agentActivityResend.js';
@@ -625,7 +627,17 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   // 8. Agent state, AFTER layoutLoaded -- the characters they target only
   // exist once the layout flush creates them. Without this a reconnecting
   // client shows bare characters until each agent takes another turn.
-  resendAgentActivity(send, store);
+  // The CLI's own status per running session lets a busy agent show as busy even
+  // before any tool has started (an empty map when it exposes no registry).
+  const liveStatus = new Map(
+    (claudeProvider.listLiveSessions?.() ?? []).map((s) => [s.sessionId, s.status]),
+  );
+  resendAgentActivity(
+    send,
+    store,
+    (agent) =>
+      liveStatus.get(agent.sessionId) ?? liveStatus.get(path.basename(agent.jsonlFile, '.jsonl')),
+  );
 
   // 9. Re-announce live terminals AFTER existingAgents, so a browser that
   // reloaded (or a second tab) rebuilds its drawer tabs. The PTY outlives the

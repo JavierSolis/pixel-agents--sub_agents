@@ -87,7 +87,7 @@ export class AgentRuntime {
 
   constructor(
     private readonly store: AgentStateStore,
-    provider: HookProvider,
+    private readonly provider: HookProvider,
   ) {
     // Wire module-level dependencies
     setDismissalTracker(this.dismissalTracker);
@@ -481,6 +481,13 @@ export class AgentRuntime {
 
     let maxId = 0;
 
+    // Sessions whose process is alive, per the CLI's own registry. null = no registry:
+    // keep every persisted agent, as before. Otherwise a top-level session that is
+    // not running (it ended while the server was off) is dropped instead of being
+    // restored as a character nobody is behind.
+    const live = this.provider.listLiveSessions?.() ?? null;
+    const liveIds = live ? new Set(live.map((s) => s.sessionId)) : null;
+
     for (const p of persisted) {
       if (!p.isExternal) continue;
       // Background-spawn children (a leadAgentId but no teamName) are derived
@@ -491,6 +498,20 @@ export class AgentRuntime {
       try {
         if (!fs.existsSync(p.jsonlFile)) continue;
       } catch {
+        continue;
+      }
+      // Team members and teammates share or derive their session, so the registry
+      // (one entry per CLI process) says nothing about them: never prune those.
+      const isTopLevel = p.leadAgentId === undefined && !p.teamName && !p.agentName;
+      if (
+        liveIds &&
+        isTopLevel &&
+        !(p.sessionId && liveIds.has(p.sessionId)) &&
+        !liveIds.has(path.basename(p.jsonlFile, '.jsonl'))
+      ) {
+        console.log(
+          `[Pixel Agents] Dropped persisted agent ${p.id} -> ${path.basename(p.jsonlFile)} (session not running)`,
+        );
         continue;
       }
       if (this.store.has(p.id)) {

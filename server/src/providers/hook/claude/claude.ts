@@ -13,6 +13,7 @@ import {
   installHooks as installerInstallHooks,
   uninstallHooks as installerUninstallHooks,
 } from './claudeHookInstaller.js';
+import { readLiveSessions } from './claudeSessionRegistry.js';
 import { claudeTeamProvider } from './claudeTeamProvider.js';
 import { CONSENT_DISCLOSURE, CONSENT_INSTALL_HEADLINE } from './consentCopy.js';
 import {
@@ -309,6 +310,7 @@ export const claudeProvider: HookProvider = {
   readingTools: new Set(['Read', 'Grep', 'Glob', 'WebFetch', 'WebSearch']),
   terminalNamePrefix: CLAUDE_TERMINAL_NAME_PREFIX,
   contextWindowForModel,
+  listLiveSessions: () => readLiveSessions(),
 
   getSessionDirs,
   getAllSessionRoots,
