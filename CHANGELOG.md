@@ -8,6 +8,13 @@
 - **Supervising parents** — An agent with live sub-agents stands up and walks beside one of them, facing it. With several it moves on to the next after a few seconds; with one it walks around it. It does not go idle until the last sub-agent ends, then returns to its desk (or the lounge).
 - **Sub-agents get their own look and seat** — A sub-agent is now a different character from its parent and claims the free PC seat nearest to the parent, so a team sits together. When no PC seat is free it types in place beside the parent, as before. It keeps its seat between turns instead of wandering off.
 - **Team markers** — A sub-agent and the parent that launched it share a coloured dot at chest level, one colour per team, so you can tell whose sub-agent is whose at a glance.
+- **Idle sessions show up at startup** — The server now asks Claude Code which sessions are actually running (its per-process registry in `~/.claude/sessions`) instead of guessing from transcript activity. A running session is adopted even if it has been quiet for hours, starts at rest or active according to the status Claude reports, and a persisted agent whose session ended while the server was off is dropped instead of lingering. If the registry is missing or unreadable, discovery works as before.
+- **Pets visit whoever is idle** — Pets still roam on their own, but are drawn to nearby agents that are not working, and stay beside them. The longer an agent has been idle, the more likely a pet goes to it or keeps it company, so a crowd of pets shows who has been quiet longest. Sub-agents are ignored.
+
+### Fixes
+
+- **Restored and adopted agents no longer type forever** — They used to start as "working" with no event to say otherwise, so a session that was already quiet sat at its desk typing and never went to the lounge. They now start at rest and become active on their first tool.
+- **The agent list survives a clean shutdown** — Stopping the standalone server with Ctrl+C used to empty the saved agent list, so the next start restored nothing. The list is now kept.
 
 ### Known limitations
 
