@@ -11,6 +11,7 @@ import {
   AREA_DEFAULT_COLORS,
   CANVAS_FALLBACK_TILE_COLOR,
   EMPTY_SPRITE_THUMBNAIL_BG,
+  MAX_PETS,
   PET_THUMB_SCALE_MARGIN,
   PET_THUMB_ZOOM,
 } from '../../constants.js';
@@ -60,7 +61,10 @@ interface EditorToolbarProps {
   onColorPickToggle: () => void;
   onFurnitureTypeChange: (type: string) => void;
   loadedAssets?: LoadedAssetData;
-  activePetTypes: number[];
+  /** Placed pets per petType (types with none are absent). */
+  petCountsByType: Map<number, number>;
+  /** Total placed pets across all types, compared against MAX_PETS. */
+  totalPets: number;
   petCount: number;
   onPetToggle: (petType: number, active: boolean) => void;
   // Carpet state + handlers
@@ -109,7 +113,8 @@ export function EditorToolbar({
   onColorPickToggle,
   onFurnitureTypeChange,
   loadedAssets,
-  activePetTypes,
+  petCountsByType,
+  totalPets,
   petCount,
   onPetToggle,
   carpetVariant,
@@ -403,30 +408,54 @@ export function EditorToolbar({
           <div className="carousel" data-testid="pets-carousel">
             {Array.from({ length: petCount }, (_, i) => {
               const sprites = getPetSprites(i);
-              const isActive = activePetTypes.includes(i);
+              const count = petCountsByType.get(i) ?? 0;
+              const isActive = count > 0;
+              const atCap = totalPets >= MAX_PETS;
               return (
-                <ItemSelect
-                  key={i}
-                  width={32}
-                  height={64}
-                  selected={isActive}
-                  onClick={() => onPetToggle(i, !isActive)}
-                  title={getPetName(i)}
-                  deps={[i, isActive]}
-                  draw={(ctx, w, h) => {
-                    if (!sprites) {
-                      ctx.fillStyle = EMPTY_SPRITE_THUMBNAIL_BG;
-                      ctx.fillRect(0, 0, w, h);
-                      return;
-                    }
-                    const cached = getCachedSprite(sprites.idleDown[0], PET_THUMB_ZOOM);
-                    const scale =
-                      Math.min(w / cached.width, h / cached.height) * PET_THUMB_SCALE_MARGIN;
-                    const dw = cached.width * scale;
-                    const dh = cached.height * scale;
-                    ctx.drawImage(cached, (w - dw) / 2, (h - dh) / 2, dw, dh);
-                  }}
-                />
+                <div key={i} className="flex flex-col items-center gap-2 shrink-0">
+                  <ItemSelect
+                    width={32}
+                    height={64}
+                    selected={isActive}
+                    onClick={() => onPetToggle(i, true)}
+                    title={`Add ${getPetName(i)} (${totalPets}/${MAX_PETS})`}
+                    deps={[i, isActive, count]}
+                    draw={(ctx, w, h) => {
+                      if (!sprites) {
+                        ctx.fillStyle = EMPTY_SPRITE_THUMBNAIL_BG;
+                        ctx.fillRect(0, 0, w, h);
+                        return;
+                      }
+                      const cached = getCachedSprite(sprites.idleDown[0], PET_THUMB_ZOOM);
+                      const scale =
+                        Math.min(w / cached.width, h / cached.height) * PET_THUMB_SCALE_MARGIN;
+                      const dw = cached.width * scale;
+                      const dh = cached.height * scale;
+                      ctx.drawImage(cached, (w - dw) / 2, (h - dh) / 2, dw, dh);
+                    }}
+                  />
+                  <div className="flex items-center gap-2 text-xs">
+                    <Button
+                      size="sm"
+                      variant={isActive ? 'default' : 'disabled'}
+                      disabled={!isActive}
+                      onClick={() => onPetToggle(i, false)}
+                      title={`Remove last ${getPetName(i)}`}
+                    >
+                      -
+                    </Button>
+                    <span data-testid={`pet-count-${i}`}>{count}</span>
+                    <Button
+                      size="sm"
+                      variant={atCap ? 'disabled' : 'default'}
+                      disabled={atCap}
+                      onClick={() => onPetToggle(i, true)}
+                      title={`Add ${getPetName(i)}`}
+                    >
+                      +
+                    </Button>
+                  </div>
+                </div>
               );
             })}
           </div>

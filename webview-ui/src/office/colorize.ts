@@ -1,9 +1,11 @@
 /**
  * Shared sprite colorization module.
  *
- * Two modes:
+ * Three modes:
  * - Colorize (Photoshop-style): grayscale → fixed HSL. For floor tiles and opt-in furniture.
  * - Adjust (default for furniture): shift original pixel HSL values.
+ * - Tint: rotate hue and guarantee a minimum saturation/lightness, so near-gray sprites
+ *   (where a plain hue rotation changes nothing visible) still take a clear color.
  */
 
 import type { ColorValue } from '../components/ui/types.js';
@@ -250,4 +252,37 @@ export function adjustSprite(sprite: SpriteData, color: ColorValue): SpriteData 
   }
 
   return result;
+}
+
+/**
+ * Tint a sprite so it takes a visible color even when its pixels are nearly gray.
+ *
+ * A plain hue rotation (`adjustSprite`) cannot recolor low-saturation pixels: with almost
+ * no chroma, changing the hue changes nothing the eye can see. Tinting instead:
+ * - rotates each pixel's hue by `hue` (gray pixels have hue 0, so they land exactly on `hue`),
+ * - raises saturation to at least `minSaturation` (already vivid pixels keep theirs),
+ * - raises lightness to at least `minLightness`, because near-black pixels cannot show
+ *   chroma at any saturation. Everything above that floor keeps its original lightness,
+ *   so shading and outlines remain readable.
+ * Per-pixel alpha is preserved.
+ */
+export function tintSprite(
+  sprite: SpriteData,
+  hue: number,
+  minSaturation: number,
+  minLightness: number,
+): SpriteData {
+  return sprite.map((row) =>
+    row.map((pixel) => {
+      if (pixel === '') return '';
+      const r = parseInt(pixel.slice(1, 3), 16);
+      const g = parseInt(pixel.slice(3, 5), 16);
+      const bv = parseInt(pixel.slice(5, 7), 16);
+      const [origH, origS, origL] = rgbToHsl(r, g, bv);
+      const newH = (((origH + hue) % 360) + 360) % 360;
+      const newS = Math.max(origS, minSaturation);
+      const newL = Math.min(1, Math.max(origL, minLightness));
+      return appendAlpha(hslToHex(newH, newS, newL), extractAlpha(pixel));
+    }),
+  );
 }

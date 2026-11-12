@@ -1,17 +1,24 @@
 import {
-  PET_FOLLOW_CHANCE,
+  PET_AFFINITY_ACTIVE,
+  PET_AFFINITY_IDLE_MAX,
+  PET_AFFINITY_IDLE_MIN,
+  PET_AFFINITY_IDLE_RAMP_SEC,
   PET_FOLLOW_DURATION_MAX_SEC,
   PET_FOLLOW_DURATION_MIN_SEC,
   PET_FOLLOW_RADIUS_TILES,
   PET_FOLLOW_RECALC_INTERVAL_SEC,
+  PET_HUE_CANDIDATE_COUNT,
   PET_IDLE_FRAME_DURATION_SEC,
   PET_IDLE_SEQUENCE,
+  PET_TINT_MIN_LIGHTNESS,
+  PET_TINT_MIN_SATURATION,
   PET_WALK_FRAME_DURATION_SEC,
   PET_WALK_SEQUENCE,
   PET_WALK_SPEED_PX_PER_SEC,
   PET_WANDER_PAUSE_MAX_SEC,
   PET_WANDER_PAUSE_MIN_SEC,
 } from '../../constants.js';
+import { tintSprite } from '../colorize.js';
 import { findPath, isWalkable } from '../layout/tileMap.js';
 import type { PetSpriteFrames } from '../sprites/petSpriteData.js';
 import type { Character, Pet, SpriteData, TileType as TileTypeVal } from '../types.js';
@@ -51,22 +58,39 @@ function manhattanDistance(c1: number, r1: number, c2: number, r2: number): numb
 }
 
 /**
- * Pick the closest non-sub-agent character within PET_FOLLOW_RADIUS_TILES
- * by Manhattan distance. Excludes despawning characters (matrixEffect === 'despawn').
+ * How drawn a pet is to a character, as a probability in (0, 1): going to it when
+ * apart, staying beside it when already there. Working agents get a small constant;
+ * idle agents ramp linearly with how long they have been idle, up to a cap below 1.
  */
-function findNearbyCharacter(pet: Pet, characters: Map<number, Character>): Character | null {
-  let closest: Character | null = null;
-  let closestDist = Number.POSITIVE_INFINITY;
+function petAffinity(ch: Character): number {
+  if (ch.isActive) return PET_AFFINITY_ACTIVE;
+  const ramp = Math.min((ch.idleSeconds ?? 0) / PET_AFFINITY_IDLE_RAMP_SEC, 1);
+  return PET_AFFINITY_IDLE_MIN + (PET_AFFINITY_IDLE_MAX - PET_AFFINITY_IDLE_MIN) * ramp;
+}
+
+/**
+ * Characters within PET_FOLLOW_RADIUS_TILES (Manhattan) that a pet may visit.
+ * Excludes sub-agents and despawning characters (matrixEffect === 'despawn').
+ */
+function findNearbyCharacters(pet: Pet, characters: Map<number, Character>): Character[] {
+  const nearby: Character[] = [];
   for (const ch of characters.values()) {
-    if (ch.matrixEffect === 'despawn') continue;
+    if (ch.isSubagent || ch.matrixEffect === 'despawn') continue;
     const d = manhattanDistance(pet.tileCol, pet.tileRow, ch.tileCol, ch.tileRow);
-    if (d > PET_FOLLOW_RADIUS_TILES) continue;
-    if (d < closestDist) {
-      closest = ch;
-      closestDist = d;
-    }
+    if (d <= PET_FOLLOW_RADIUS_TILES) nearby.push(ch);
   }
-  return closest;
+  return nearby;
+}
+
+/** Weighted random pick by `petAffinity`; consumes exactly one `Math.random()` call. */
+function pickByAffinity(candidates: Character[]): Character {
+  const total = candidates.reduce((sum, ch) => sum + petAffinity(ch), 0);
+  let roll = Math.random() * total;
+  for (const ch of candidates) {
+    roll -= petAffinity(ch);
+    if (roll < 0) return ch;
+  }
+  return candidates[candidates.length - 1];
 }
 
 /**
@@ -136,12 +160,19 @@ function movePetAlongPath(pet: Pet, dt: number): void {
 }
 
 /** Build a fresh pet at a tile with the IDLE FSM entry point. */
-export function createPet(id: string, petType: number, col: number, row: number): Pet {
+export function createPet(
+  id: string,
+  petType: number,
+  col: number,
+  row: number,
+  hueShift = 0,
+): Pet {
   const center = tileCenter(col, row);
   return {
     id,
     name: '', // Filled by OfficeState.addPet() via getPetName(petType)
     petType,
+    hueShift,
     state: PetState.IDLE,
     dir: Direction.DOWN,
     x: center.x,
@@ -180,10 +211,22 @@ export function updatePet(
       pet.wanderTimer -= dt;
       if (pet.wanderTimer > 0) break;
 
-      // Roll for follow first
-      if (Math.random() < PET_FOLLOW_CHANCE) {
-        const target = findNearbyCharacter(pet, characters);
-        if (target) {
+      // Cat-like: pets drift on their own, but are drawn to whoever is nearby and
+      // still. Pick a candidate weighted by affinity, then roll against that
+      // affinity — long-idle agents are both chosen more and kept company longer.
+      const nearby = findNearbyCharacters(pet, characters);
+      if (nearby.length > 0) {
+        const target = pickByAffinity(nearby);
+        if (Math.random() < petAffinity(target)) {
+          const dist = manhattanDistance(pet.tileCol, pet.tileRow, target.tileCol, target.tileRow);
+          if (dist <= 1) {
+            // Already beside it: stay put, facing it, until the next decision.
+            if (dist === 1) {
+              pet.dir = directionBetween(pet.tileCol, pet.tileRow, target.tileCol, target.tileRow);
+            }
+            pet.wanderTimer = randomRange(PET_WANDER_PAUSE_MIN_SEC, PET_WANDER_PAUSE_MAX_SEC);
+            break;
+          }
           pet.state = PetState.FOLLOW;
           pet.followTargetId = target.id;
           pet.followDuration = 0;
@@ -307,11 +350,78 @@ export function updatePet(
   }
 }
 
+/** Smallest angular distance (degrees, 0-180) between two hues. */
+function hueDistance(a: number, b: number): number {
+  const d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
 /**
- * Resolve the sprite for the pet's current state + direction + frame.
- * Returns null when sprites haven't loaded yet — renderer guards.
+ * Pick a random tint (degrees in [1, 360)) for a new pet. 0 is reserved for "original
+ * sprite colors" (what layouts saved before pet colors existed resolve to), so it is
+ * never produced unless `keepFirstOriginal` is set and no pet of the type exists yet.
+ * To avoid look-alikes, several random candidates are drawn and the one farthest from
+ * every tone in `usedShifts` (tones of pets of the same type) is returned.
+ * `random` is injectable (returns [0, 1)) for deterministic tests.
+ */
+export function pickPetHueShift(
+  usedShifts: number[],
+  random: () => number = Math.random,
+  keepFirstOriginal = false,
+): number {
+  if (keepFirstOriginal && usedShifts.length === 0) return 0;
+  const used = usedShifts.filter((h) => h !== 0);
+  let best = 1;
+  let bestDistance = -1;
+  for (let i = 0; i < PET_HUE_CANDIDATE_COUNT; i++) {
+    const candidate = 1 + Math.floor(random() * 359);
+    const distance =
+      used.length === 0 ? 180 : Math.min(...used.map((h) => hueDistance(candidate, h)));
+    if (distance > bestDistance) {
+      bestDistance = distance;
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/** Normalize a persisted hue to [0, 360); non-finite values (corrupt layouts) become 0. */
+export function normalizePetHueShift(hue: unknown): number {
+  if (typeof hue !== 'number' || !Number.isFinite(hue)) return 0;
+  return ((hue % 360) + 360) % 360;
+}
+
+/**
+ * Tinted copies of base sprites, keyed by sprite identity then hue. Base frames
+ * are stable objects, so each (frame, hue) pair is computed once.
+ */
+const hueShiftedSprites = new WeakMap<SpriteData, Map<number, SpriteData>>();
+
+function applyHueShift(sprite: SpriteData, hueShift: number): SpriteData {
+  if (hueShift === 0) return sprite;
+  let byHue = hueShiftedSprites.get(sprite);
+  if (!byHue) {
+    byHue = new Map();
+    hueShiftedSprites.set(sprite, byHue);
+  }
+  let shifted = byHue.get(hueShift);
+  if (!shifted) {
+    shifted = tintSprite(sprite, hueShift, PET_TINT_MIN_SATURATION, PET_TINT_MIN_LIGHTNESS);
+    byHue.set(hueShift, shifted);
+  }
+  return shifted;
+}
+
+/**
+ * Resolve the sprite for the pet's current state + direction + frame, with the
+ * pet's hue shift applied. Returns null when sprites haven't loaded yet — renderer guards.
  */
 export function getPetSpriteData(pet: Pet, petSprites: PetSpriteFrames | null): SpriteData | null {
+  const base = getPetBaseSprite(pet, petSprites);
+  return base ? applyHueShift(base, pet.hueShift) : null;
+}
+
+function getPetBaseSprite(pet: Pet, petSprites: PetSpriteFrames | null): SpriteData | null {
   if (!petSprites) return null;
 
   if (pet.state === PetState.IDLE) {

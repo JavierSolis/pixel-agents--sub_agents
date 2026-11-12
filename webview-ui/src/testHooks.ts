@@ -176,6 +176,7 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
       id: pet.id,
       name: pet.name,
       petType: pet.petType,
+      hueShift: pet.hueShift,
       state: pet.state,
       x: pet.x,
       y: pet.y,

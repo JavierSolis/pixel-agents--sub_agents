@@ -12,6 +12,7 @@ import {
   INACTIVE_SEAT_TIMER_MIN_SEC,
   INACTIVE_SEAT_TIMER_RANGE_SEC,
   MAX_PET_ID_LENGTH,
+  MAX_PETS,
   PET_HIT_HALF_WIDTH,
   PET_HIT_HEIGHT,
   SUPERVISE_DWELL_MAX_SEC,
@@ -42,7 +43,7 @@ import type {
 import { CharacterState, Direction, PetState, TILE_SIZE } from '../types.js';
 import { createCharacter, updateCharacter } from './characters.js';
 import { advanceMatrixEffect, startMatrixEffect } from './matrixEffectState.js';
-import { createPet, updatePet } from './petEntity.js';
+import { createPet, normalizePetHueShift, updatePet } from './petEntity.js';
 import { anchorTile, closestFreeSeat } from './seatPlacement.js';
 
 /** Internal helper: facing-tile coords for a seat. Returns null for invalid direction. */
@@ -1189,10 +1190,17 @@ export class OfficeState {
       return;
     }
     if (this.pets.some((p) => p.id === placedPet.id)) return; // de-dupe
+    if (this.pets.length >= MAX_PETS) return; // roster cap (also trims oversized layouts)
     if (this.walkableTiles.length === 0) return; // no spawn space — silently drop
 
     const spawn = this.walkableTiles[Math.floor(Math.random() * this.walkableTiles.length)];
-    const pet = createPet(placedPet.id, placedPet.petType, spawn.col, spawn.row);
+    const pet = createPet(
+      placedPet.id,
+      placedPet.petType,
+      spawn.col,
+      spawn.row,
+      normalizePetHueShift(placedPet.hueShift),
+    );
     pet.name = getPetName(placedPet.petType);
     this.pets.push(pet);
     this.syncLayoutPets();
@@ -1212,11 +1220,11 @@ export class OfficeState {
     return this.pets.slice();
   }
 
-  /** Unique petType values currently placed. Used by the Pets toolbar to mark active rows. */
-  getActivePetTypes(): number[] {
-    const seen = new Set<number>();
-    for (const p of this.pets) seen.add(p.petType);
-    return Array.from(seen);
+  /** Number of placed pets per petType. Used by the Pets toolbar to show counts. */
+  getPetCountsByType(): Map<number, number> {
+    const counts = new Map<number, number>();
+    for (const p of this.pets) counts.set(p.petType, (counts.get(p.petType) ?? 0) + 1);
+    return counts;
   }
 
   /**
@@ -1286,7 +1294,11 @@ export class OfficeState {
    * getLayout(), which runs on every render frame.
    */
   private syncLayoutPets(): void {
-    this.layout.pets = this.pets.map((p) => ({ id: p.id, petType: p.petType }));
+    this.layout.pets = this.pets.map((p) => ({
+      id: p.id,
+      petType: p.petType,
+      hueShift: p.hueShift,
+    }));
   }
 
   setTeamInfo(
@@ -1358,6 +1370,8 @@ export class OfficeState {
         if (effect === 'despawned') toDelete.push(ch.id);
         continue; // skip normal FSM while the effect is (or just was) active
       }
+
+      ch.idleSeconds = ch.isActive ? 0 : (ch.idleSeconds ?? 0) + dt;
 
       if (!ch.isSubagent) this.superviseSubagents(ch, subagentsByParent.get(ch.id) ?? [], dt);
 

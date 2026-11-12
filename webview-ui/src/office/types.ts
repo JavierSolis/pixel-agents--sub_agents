@@ -202,6 +202,9 @@ export interface Character {
   wanderLimit: number;
   /** Whether the agent is actively working */
   isActive: boolean;
+  /** Seconds since the agent last stopped working; 0 while active. Pets read it to
+   *  favour agents that have been sitting idle the longest. Undefined counts as 0. */
+  idleSeconds?: number;
   /** Assigned seat uid, or null if no seat */
   seatId: string | null;
   /** Active speech bubble type, or null if none showing */
@@ -281,6 +284,8 @@ export interface Pet {
   name: string;
   /** Index into the loaded PetSpriteFrames[] array. */
   petType: number;
+  /** Hue rotation in degrees applied to the sprite at render time (0 = original colors). */
+  hueShift: number;
   state: PetState;
   dir: Direction;
   /** Pixel position (bottom-center anchor). */
@@ -318,4 +323,9 @@ export interface PlacedPet {
   id: string;
   /** Index into the loaded pet sprite array. */
   petType: number;
+  /**
+   * Tint hue in degrees, chosen at random when the pet is added. 0 or omitted keeps the
+   * original sprite colors (layouts saved before pet colors existed omit it).
+   */
+  hueShift?: number;
 }

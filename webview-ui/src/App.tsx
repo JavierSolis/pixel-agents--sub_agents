@@ -544,7 +544,8 @@ function App() {
                   onColorPickToggle={editor.handleColorPickToggle}
                   onFurnitureTypeChange={editor.handleFurnitureTypeChange}
                   loadedAssets={loadedAssets}
-                  activePetTypes={officeState.getActivePetTypes()}
+                  petCountsByType={officeState.getPetCountsByType()}
+                  totalPets={officeState.pets.length}
                   petCount={getPetCount()}
                   onPetToggle={editor.handlePetToggle}
                   carpetVariant={editor.carpetVariant}

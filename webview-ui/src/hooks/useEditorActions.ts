@@ -5,6 +5,7 @@ import {
   CARPET_DEFAULT_ACCENT_COLOR,
   CARPET_DEFAULT_COLOR,
   LAYOUT_SAVE_DEBOUNCE_MS,
+  MAX_PETS,
   ZOOM_DEFAULT_DPR_FACTOR,
   ZOOM_MAX,
   ZOOM_MIN,
@@ -36,6 +37,7 @@ import {
 } from '../office/editor/editorActions.js';
 import type { EditorState } from '../office/editor/editorState.js';
 import type { OfficeState } from '../office/engine/officeState.js';
+import { normalizePetHueShift, pickPetHueShift } from '../office/engine/petEntity.js';
 import { getRotatedType, getToggledType } from '../office/layout/furnitureCatalog.js';
 import type {
   EditTool as EditToolType,
@@ -582,17 +584,33 @@ export function useEditorActions(
 
       let newPets: PlacedPet[];
       if (active) {
-        // Idempotent: if this pet type is already placed, no-op (prevent double-write).
-        if (currentPets.some((p) => p.petType === petType)) {
+        // Roster cap: no-op once the office is full.
+        if (currentPets.length >= MAX_PETS) {
           return;
         }
-        newPets = [...currentPets, { id: crypto.randomUUID(), petType }];
+        // Each new instance gets a random tone, far from the tones of pets of the same type.
+        // The tone is stored on the placed pet so it stays stable across reloads.
+        const usedShifts = currentPets
+          .filter((p) => p.petType === petType)
+          .map((p) => normalizePetHueShift(p.hueShift));
+        newPets = [
+          ...currentPets,
+          { id: crypto.randomUUID(), petType, hueShift: pickPetHueShift(usedShifts) },
+        ];
       } else {
-        newPets = currentPets.filter((p) => p.petType !== petType);
+        // Remove the most recently added instance of this type.
+        let lastIdx = -1;
+        for (let i = currentPets.length - 1; i >= 0; i--) {
+          if (currentPets[i].petType === petType) {
+            lastIdx = i;
+            break;
+          }
+        }
         // Idempotent: nothing to remove → no-op.
-        if (newPets.length === currentPets.length) {
+        if (lastIdx === -1) {
           return;
         }
+        newPets = currentPets.filter((_, i) => i !== lastIdx);
       }
 
       const newLayout: OfficeLayout = { ...layout, pets: newPets };

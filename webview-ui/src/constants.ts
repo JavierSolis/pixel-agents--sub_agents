@@ -319,8 +319,16 @@ export const PET_WANDER_PAUSE_MIN_SEC = 3.0;
 export const PET_WANDER_PAUSE_MAX_SEC = 15.0;
 /** Seconds between FOLLOW path re-computations. */
 export const PET_FOLLOW_RECALC_INTERVAL_SEC = 1.0;
-/** Probability that a pet enters FOLLOW (instead of WALK) when wanderTimer expires. */
-export const PET_FOLLOW_CHANCE = 0.3;
+/** Chance a pet goes to (or stays beside) an agent that is actively working. Low: pets
+ *  mostly leave busy agents alone, but occasionally visit. */
+export const PET_AFFINITY_ACTIVE = 0.05;
+/** Chance a pet goes to (or stays beside) an agent that has just gone idle. */
+export const PET_AFFINITY_IDLE_MIN = 0.15;
+/** Chance cap for an agent idle for PET_AFFINITY_IDLE_RAMP_SEC or longer. Below 1 on
+ *  purpose so a pet still gets up and leaves now and then. */
+export const PET_AFFINITY_IDLE_MAX = 0.9;
+/** Seconds of idleness over which the affinity ramps linearly from MIN to MAX. */
+export const PET_AFFINITY_IDLE_RAMP_SEC = 300;
 /** Maximum Manhattan distance (tiles) at which a character can become a follow target. */
 export const PET_FOLLOW_RADIUS_TILES = 3;
 /** Minimum seconds a FOLLOW episode lasts before timing out. */
@@ -339,6 +347,21 @@ export const PET_THUMB_SCALE_MARGIN = 0.85;
 export const EMPTY_SPRITE_THUMBNAIL_BG = '#333';
 /** Maximum string length for a PlacedPet.id (defends against pathologically-long layout entries). */
 export const MAX_PET_ID_LENGTH = 128;
+/** Maximum number of pets (all types combined) that can live in one office. */
+export const MAX_PETS = 12;
+/**
+ * Random tones are sampled this many times per new pet and the one farthest (by hue
+ * angle) from the tones already used by pets of the same type wins, so neighbours of
+ * one type rarely look alike while the pick stays random.
+ */
+export const PET_HUE_CANDIDATE_COUNT = 16;
+/**
+ * Floors applied when tinting a pet. Pet sprites can be nearly gray and dark, where a
+ * hue change is invisible; these floors give every tinted pet a clearly colored,
+ * not-washed-out look while brighter/more vivid pixels keep their own values.
+ */
+export const PET_TINT_MIN_SATURATION = 0.6;
+export const PET_TINT_MIN_LIGHTNESS = 0.2;
 
 // ── WebSocket reconnect (standalone only) ────────────────────
 /** Reconnect backoff ladder shared by the /ws transport and every terminal
