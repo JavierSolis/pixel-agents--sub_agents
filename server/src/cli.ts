@@ -427,7 +427,7 @@ async function main(): Promise<void> {
       // wait for them: exiting now would cancel the SIGKILL escalation and
       // leave a child that ignores SIGHUP orphaned on a dead server.
       await ptyManager.disposeAll();
-      runtime.dispose();
+      runtime.dispose({ keepPersistedAgents: true });
       server.stop();
       process.exit(0);
     }

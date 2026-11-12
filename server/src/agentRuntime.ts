@@ -304,8 +304,9 @@ export class AgentRuntime {
 
   // ── Agent removal (shared cleanup) ──
 
-  /** Remove an agent: stop watchers, cancel timers, delete from store. */
-  removeAgent(id: number): void {
+  /** Remove an agent: stop watchers, cancel timers, delete from store. Persists the
+   *  remaining roster afterwards unless `persist` is false (shutdown teardown). */
+  removeAgent(id: number, opts: { persist?: boolean } = {}): void {
     const agent = this.store.get(id);
     if (!agent) return;
 
@@ -334,7 +335,7 @@ export class AgentRuntime {
 
     // Remove from store (fires agentRemoved event) and persist
     this.store.delete(id);
-    this.store.persist();
+    if (opts.persist !== false) this.store.persist();
   }
 
   /** Remove a single teammate agent. */
@@ -554,8 +555,15 @@ export class AgentRuntime {
 
   // ── Cleanup ──
 
-  /** Clean up all scanners, timers, and agents. Called on shutdown. */
-  dispose(): void {
+  /**
+   * Clean up all scanners, timers, and agents. Called on shutdown.
+   *
+   * Tearing agents down normally persists after every removal, leaving an empty
+   * roster on disk. With `keepPersistedAgents` the current roster is written once
+   * first and the teardown never touches it, so the next start can restore the
+   * sessions that were open (idle ones included).
+   */
+  dispose(opts: { keepPersistedAgents?: boolean } = {}): void {
     this.hookEventHandler.dispose();
     this.subagentWatch.dispose();
 
@@ -572,8 +580,10 @@ export class AgentRuntime {
       this.staleCheckTimer = null;
     }
 
+    const keep = opts.keepPersistedAgents === true;
+    if (keep) this.store.persist();
     for (const id of [...this.store.keys()]) {
-      this.removeAgent(id);
+      this.removeAgent(id, { persist: !keep });
     }
   }
 }
