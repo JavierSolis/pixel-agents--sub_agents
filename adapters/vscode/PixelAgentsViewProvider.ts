@@ -5,6 +5,7 @@ import * as vscode from 'vscode';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
 import type { HookProvider } from '../../core/src/provider.js';
+import { buildAgentDetails } from '../../server/src/agentDetails.js';
 import { buildAgentDiagnostics } from '../../server/src/agentDiagnostics.js';
 import { AgentRuntime } from '../../server/src/agentRuntime.js';
 import { AgentStateStore } from '../../server/src/agentStateStore.js';
@@ -926,6 +927,17 @@ export class PixelAgentsViewProvider implements vscode.WebviewViewProvider {
         this.webview?.postMessage({
           type: 'agentDiagnostics',
           agents: buildAgentDiagnostics(this.store),
+        });
+      } else if (message.type === 'requestAgentDetails') {
+        // Process facts + readable transcript for the agent details dialog
+        const id = message.id as number;
+        this.webview?.postMessage({
+          type: 'agentDetails',
+          id,
+          details: buildAgentDetails(
+            this.store.get(id),
+            claudeProvider.listLiveSessions?.() ?? null,
+          ),
         });
       } else if (message.type === 'openSessionsFolder') {
         const projectDir = getProjectDirPath();

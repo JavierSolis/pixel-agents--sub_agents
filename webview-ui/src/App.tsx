@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { toMajorMinor } from './changelogData.js';
 import { AgentCardBar } from './components/AgentCardBar.js';
+import { AgentDetailsModal } from './components/AgentDetailsModal.js';
 import { BottomToolbar } from './components/BottomToolbar.js';
 import { ChangelogModal } from './components/ChangelogModal.js';
 import { ConnectionIndicator } from './components/ConnectionIndicator.js';
@@ -130,6 +131,8 @@ function App() {
 
   const [isChangelogOpen, setIsChangelogOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Agent whose details dialog (process facts + readable transcript) is open.
+  const [detailsAgentId, setDetailsAgentId] = useState<number | null>(null);
   const [isHooksInfoOpen, setIsHooksInfoOpen] = useState(false);
   const [hooksTooltipDismissed, setHooksTooltipDismissed] = useState(false);
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -490,6 +493,7 @@ function App() {
         showAreas={effectiveShowAreas}
         activeAreaLabel={activeAreaLabel}
         tapSelectsFirst={isMobile}
+        onOpenDetails={isMobile ? undefined : setDetailsAgentId}
       />
 
       {!isDebugMode ? (
@@ -815,6 +819,12 @@ function App() {
         isOpen={isChangelogOpen}
         onClose={() => setIsChangelogOpen(false)}
         currentVersion={extensionVersion}
+      />
+
+      <AgentDetailsModal
+        agentId={detailsAgentId}
+        officeState={officeState}
+        onClose={() => setDetailsAgentId(null)}
       />
 
       <SettingsModal

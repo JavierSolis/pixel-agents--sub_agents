@@ -42,6 +42,10 @@
   --color-status-success: #89d185;
   --color-status-error: var(--color-danger);
 
+  /* Agent chat bubbles (details dialog): a green counterpart to the purple user bubble */
+  --color-agent-bg: #1f3a2c;
+  --color-agent-border: #3f7a55;
+
   /* Shadow */
   --shadow-pixel: 2px 2px 0px #0a0a14;
 
@@ -88,6 +92,8 @@
   --color-status-active: var(--color-status-active);
   --color-status-success: var(--color-status-success);
   --color-status-error: var(--color-status-error);
+  --color-agent-bg: var(--color-agent-bg);
+  --color-agent-border: var(--color-agent-border);
 
   /* Shadow */
   --shadow-pixel: var(--shadow-pixel);

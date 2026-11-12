@@ -3,6 +3,7 @@ import * as path from 'path';
 import type { StateAdapter } from '../../core/src/adapter.js';
 import type { HookProvider } from '../../core/src/provider.js';
 import { resendAgentActivity } from './agentActivityResend.js';
+import { buildAgentDetails } from './agentDetails.js';
 import { buildAgentDiagnostics } from './agentDiagnostics.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
@@ -182,6 +183,19 @@ export function handleClientMessage(
       // Point-to-point reply to the requesting socket (NOT a broadcast).
       send({ type: 'agentDiagnostics', agents: buildAgentDiagnostics(store) });
       break;
+
+    case 'requestAgentDetails': {
+      // Point-to-point: the transcript is the user's private conversation, so it
+      // goes only to the socket that asked (and, being past the read-only gate
+      // above, only to a privileged one).
+      const id = msg.id as number;
+      send({
+        type: 'agentDetails',
+        id,
+        details: buildAgentDetails(store.get(id), claudeProvider.listLiveSessions?.() ?? null),
+      });
+      break;
+    }
 
     case 'saveLayout':
       if (msg.layout) {

@@ -63,6 +63,8 @@ export function readLiveSessions(dir: string = defaultSessionsDir()): LiveSessio
         pid,
         cwd: typeof raw.cwd === 'string' ? raw.cwd : undefined,
         status: typeof raw.status === 'string' ? raw.status : undefined,
+        startedAt: typeof raw.startedAt === 'number' ? raw.startedAt : undefined,
+        statusUpdatedAt: typeof raw.statusUpdatedAt === 'number' ? raw.statusUpdatedAt : undefined,
       });
     } catch {
       /* malformed or half-written record: skip it */

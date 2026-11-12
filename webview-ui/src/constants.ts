@@ -403,6 +403,17 @@ export const MUGSHOT_RENDER_ZOOM = 2;
 /** On-screen size in CSS px. Equal to the backing canvas (crop × zoom) so there
  *  is no fractional scaling — the mug shot stays pixel-perfect. */
 export const MUGSHOT_DISPLAY_PX = MUGSHOT_CROP_SIDE_PX * MUGSHOT_RENDER_ZOOM;
+
+// ── Agent details dialog ─────────────────────────────────────
+/** How often the open dialog re-requests the agent's facts and transcript. */
+export const AGENT_DETAILS_POLL_MS = 2000;
+/** How often the dialog redraws the character's live sprite frame. */
+export const AGENT_DETAILS_SPRITE_REFRESH_MS = 150;
+/** Integer zoom of the character shown beside the facts. */
+export const AGENT_DETAILS_SPRITE_ZOOM = 5;
+/** Distance from the chat's bottom edge (px) within which it keeps following new
+ *  messages; scrolled further up, the reader is left where they are. */
+export const AGENT_DETAILS_STICK_BOTTOM_PX = 80;
 /** Terminal CONTENT is monospace on purpose: FS Pixel Sans is not a mono font,
  *  and a TUI mis-renders in a proportional face. The drawer chrome around it
  *  still uses the pixel font. */

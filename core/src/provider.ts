@@ -73,6 +73,11 @@ export interface LiveSession {
   /** The CLI's own state label for the session (Claude: 'idle', 'busy', 'shell', ...).
    *  Providers pass it through untouched; consumers match only the values they know. */
   status?: string;
+  /** When the process started (ms since epoch), as the CLI recorded it. */
+  startedAt?: number;
+  /** When `status` last changed (ms since epoch): how long the session has been
+   *  busy or idle. */
+  statusUpdatedAt?: number;
 }
 
 // ── Hook-based Provider (CLIs with hooks APIs) ────────────────

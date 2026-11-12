@@ -127,6 +127,7 @@ components:
         - $ref: '#/components/schemas/TerminalSessionClosed'
         # Diagnostics
         - $ref: '#/components/schemas/AgentDiagnostics'
+        - $ref: '#/components/schemas/AgentDetails'
       discriminator: type
 
     ClientMessage:
@@ -158,6 +159,7 @@ components:
         - $ref: '#/components/schemas/RemoveDirectory'
         - $ref: '#/components/schemas/RequestDirectorySuggestions'
         - $ref: '#/components/schemas/RequestDiagnostics'
+        - $ref: '#/components/schemas/RequestAgentDetails'
       discriminator: type
 
     # ── Server message variants ────────────────────────────────────
@@ -899,6 +901,25 @@ components:
           items:
             type: object
 
+    AgentDetails:
+      description: |
+        Process facts and a readable chat transcript for one agent (response to
+        requestAgentDetails). Sent point-to-point to the requesting socket only,
+        because the transcript is the user's private conversation.
+      type: object
+      additionalProperties: false
+      required: [type, id, details]
+      properties:
+        type:
+          const: agentDetails
+        id:
+          type: integer
+        details:
+          type: object
+          description: |
+            Agent facts (found, pid, cwd, status, statusSince, startedAt, sessionId,
+            chat[]); shape opaque to the protocol, like agentDiagnostics.
+
     # ── Terminal control plane (standalone embedded terminal) ──────
     # Only the CONTROL plane lives in this contract. The terminal's raw byte
     # stream is deliberately outside it, on a dedicated WebSocket endpoint
@@ -1319,6 +1340,19 @@ components:
       properties:
         type:
           const: requestDiagnostics
+
+    RequestAgentDetails:
+      description: |
+        Request one agent's process facts and readable transcript (server responds
+        with agentDetails to the requesting socket only).
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          const: requestAgentDetails
+        id:
+          type: integer
 
     # ── Supporting schemas ─────────────────────────────────────────
 

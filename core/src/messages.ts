@@ -46,7 +46,8 @@ export type ServerMessage =
   | TerminalAvailability
   | TerminalSessionOpened
   | TerminalSessionClosed
-  | AgentDiagnostics;
+  | AgentDiagnostics
+  | AgentDetails;
 
 export type ClientMessage =
   | WebviewReady
@@ -75,7 +76,8 @@ export type ClientMessage =
   | SaveDirectory
   | RemoveDirectory
   | RequestDirectorySuggestions
-  | RequestDiagnostics;
+  | RequestDiagnostics
+  | RequestAgentDetails;
 
 export interface ProviderCapabilities {
   type: 'providerCapabilities';
@@ -376,6 +378,12 @@ export interface AgentDiagnostics {
   agents: Record<string, any>[];
 }
 
+export interface AgentDetails {
+  type: 'agentDetails';
+  id: number;
+  details: Record<string, any>;
+}
+
 export interface WebviewReady {
   type: 'webviewReady';
 }
@@ -514,4 +522,9 @@ export interface RequestDirectorySuggestions {
 
 export interface RequestDiagnostics {
   type: 'requestDiagnostics';
+}
+
+export interface RequestAgentDetails {
+  type: 'requestAgentDetails';
+  id: number;
 }

@@ -40,6 +40,10 @@ function dragMoveCursor(editorState: EditorState): string {
 interface OfficeCanvasProps {
   officeState: OfficeState;
   onClick: (agentId: number) => void;
+  /** Desktop click on a character: opens its details dialog in place of focusing
+   *  its terminal and re-centring the camera on it. Absent, a click keeps the old
+   *  behaviour (select + follow + focus terminal). */
+  onOpenDetails?: (agentId: number) => void;
   isEditMode: boolean;
   editorState: EditorState;
   onEditorTileAction: (col: number, row: number) => void;
@@ -68,6 +72,7 @@ interface OfficeCanvasProps {
 export function OfficeCanvas({
   officeState,
   onClick,
+  onOpenDetails,
   isEditMode,
   editorState,
   onEditorTileAction,
@@ -623,6 +628,13 @@ export function OfficeCanvas({
           }
           return;
         }
+        // Details dialog: select the character (outline, so a seat click can still
+        // reassign it once the dialog closes) but leave the camera where it is.
+        if (onOpenDetails) {
+          officeState.selectedAgentId = hitId;
+          onOpenDetails(hitId);
+          return;
+        }
         // Toggle selection: click same agent deselects, different agent selects
         if (officeState.selectedAgentId === hitId) {
           officeState.selectedAgentId = null;
@@ -684,7 +696,7 @@ export function OfficeCanvas({
         officeState.cameraFollowId = null;
       }
     },
-    [officeState, onClick, screenToWorld, screenToTile, tapSelectsFirst],
+    [officeState, onClick, onOpenDetails, screenToWorld, screenToTile, tapSelectsFirst],
   );
 
   const handleClick = useCallback(
