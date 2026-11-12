@@ -33,6 +33,7 @@ allure-report/
 
 # Project-specific
 .claude
+CLAUDE.local.md
 .mcp.json
 /sprites-export
 .vercel/
