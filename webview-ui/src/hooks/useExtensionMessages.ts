@@ -386,6 +386,13 @@ export function useExtensionMessages(
           if (isHeadlessAgent(msg.isExternal as boolean | undefined)) {
             os.setHeadless(id, true);
           }
+          // A session adopted from outside carries no status: it may well be quiet, and
+          // a quiet one never emits the event that would stop its typing. Start it
+          // resting; its first tool start flips it active. Agents launched here keep
+          // the default (a turn has just begun).
+          if (msg.isExternal === true) {
+            os.setAgentActive(id, false);
+          }
         }
         saveAgentSeats(os);
       } else if (msg.type === 'agentClosed') {

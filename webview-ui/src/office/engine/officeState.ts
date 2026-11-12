@@ -643,7 +643,13 @@ export class OfficeState {
     if (directoryName) {
       ch.directoryName = directoryName;
     }
-    if (!skipSpawnEffect) {
+    if (skipSpawnEffect) {
+      // Restored agents (no spawn effect) arrive with no status event: the server only
+      // replays live tools and the waiting flag, so a session that was already quiet
+      // would otherwise sit typing forever. Start them resting; any replayed or later
+      // tool start flips them active straight away.
+      ch.isActive = false;
+    } else {
       startMatrixEffect(ch, 'spawn');
     }
     this.characters.set(id, ch);
